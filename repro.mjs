@@ -1,4 +1,4 @@
-// `expo start --port 8081` on Windows while another process already listens on port 8081 at 127.0.0.1, then at 0.0.0.0.
+// `expo start --port 8081` on Windows while another process already listens on port 8081 at 127.0.0.1, at 0.0.0.0, and at ::.
 // Exits 1 while Expo starts Metro on the held port, 0 once it refuses the port or moves to another, 2 when a step fails first.
 import { spawn } from 'node:child_process';
 import http from 'node:http';
@@ -7,7 +7,7 @@ import net from 'node:net';
 import os from 'node:os';
 
 const PORT = 8081;
-const HOLDER_HOSTS = ['127.0.0.1', '0.0.0.0'];
+const HOLDER_HOSTS = ['127.0.0.1', '0.0.0.0', '::'];
 const START_TIMEOUT_MS = Number(process.env.REPRO_START_TIMEOUT_MS ?? 180_000);
 const REFUSAL = /Port \d+ is unavailable|PORT_IN_USE/;
 
@@ -15,6 +15,8 @@ const require = createRequire(import.meta.url);
 const expoVersion = require('expo/package.json').version;
 const cliVersion = createRequire(require.resolve('expo/package.json'))('@expo/cli/package.json').version;
 const expoCli = process.env.REPRO_EXPO_CLI ?? require.resolve('expo/bin/cli');
+
+const formatAddress = (host) => (host.includes(':') ? `[${host}]:${PORT}` : `${host}:${PORT}`);
 
 // A connection the client leaves open keeps `server.close` from finishing, so the holder ends its own.
 const holdPort = (host) =>
@@ -114,12 +116,12 @@ for (const host of HOLDER_HOSTS) {
   try {
     holder = await holdPort(host);
   } catch (error) {
-    const reason = `the holder could not listen on ${host}:${PORT}: ${error.code ?? error.message}`;
+    const reason = `the holder could not listen on ${formatAddress(host)}: ${error.code ?? error.message}`;
     console.log(reason);
     results.push({ host, kind: 'failed', reason });
     continue;
   }
-  console.log(`holder: listening on ${host}:${PORT}`);
+  console.log(`holder: listening on ${formatAddress(host)}`);
   const expo = await startExpo();
   if (expo.kind === 'started' && expo.port === PORT) {
     console.log(`expo start: Metro serves on port ${PORT}`);
@@ -143,7 +145,7 @@ for (const host of HOLDER_HOSTS) {
 const took = results.filter((result) => result.kind === 'took').map((result) => result.host);
 const failed = results.filter((result) => result.kind === 'failed');
 if (took.length > 0) {
-  console.log(`summary: expo start took port ${PORT} while a holder listened on ${took.join(' and ')} (exit 1)`);
+  console.log(`summary: expo start took port ${PORT} while a holder listened on ${took.join(', ')} (exit 1)`);
   process.exitCode = 1;
 } else if (failed.length > 0) {
   console.log(`summary: a step failed before the check — ${failed.map((result) => result.reason).join('; ')} (exit 2)`);
